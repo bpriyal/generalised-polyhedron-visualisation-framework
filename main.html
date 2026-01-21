@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PnL vs Time - Polyhedral Greeks</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #020617; font-family: 'Inter', sans-serif; color: white; }
+        
+        #header-ui {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            background: rgba(15, 23, 42, 0.6);
+            padding: 10px 40px;
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 10;
+            border: 1px solid rgba(56, 189, 248, 0.2);
+        }
+
+        #legend-ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid #334155;
+            padding: 15px;
+            border-radius: 4px;
+            width: 220px;
+            font-size: 0.75rem;
+            z-index: 10;
+        }
+
+        h1 { margin: 0; font-size: 1.4rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 3px; }
+        .sub { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+
+        .metric-row { display: flex; align-items: center; margin-bottom: 6px; }
+        .color-bar { width: 30px; height: 8px; margin-right: 10px; border-radius: 2px; }
+        
+        .intensity-scale {
+            display: flex;
+            height: 6px;
+            width: 100%;
+            background: linear-gradient(to right, #1e293b, #38bdf8);
+            margin: 5px 0;
+            border-radius: 2px;
+        }
+
+        #tooltip {
+            position: absolute;
+            background: rgba(2, 6, 23, 0.95);
+            border: 1px solid #38bdf8;
+            padding: 10px;
+            border-radius: 2px;
+            font-size: 0.75rem;
+            display: none;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        
+        .hint { font-size: 0.65rem; color: #64748b; margin-top: 10px; border-top: 1px solid #1e293b; padding-top: 5px; }
+
+        .axis-label-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .dom-label {
+            position: absolute;
+            color: #94a3b8;
+            font-size: 0.65rem;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+            white-space: nowrap;
+        }
+        .axis-title {
+            font-size: 0.8rem;
+            color: #cbd5e1;
+            letter-spacing: 1px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="header-ui">
+        <h1>PnL vs Time</h1>
+        <div class="sub">Quarterly Risk Analysis & Performance</div>
+    </div>
+
+    <div id="legend-ui">
+        <div style="font-weight: bold; margin-bottom: 8px; color: #cbd5e1;">Risk Encodings</div>
+        <div class="metric-row"><div class="color-bar" style="background:#ef4444"></div> Delta (Δ)</div>
+        <div class="metric-row"><div class="color-bar" style="background:#22c55e"></div> Gamma (Γ)</div>
+        <div class="metric-row"><div class="color-bar" style="background:#f59e0b"></div> Theta (Θ)</div>
+        <div class="metric-row"><div class="color-bar" style="background:#3b82f6"></div> Vega (ν)</div>
+        <div class="metric-row"><div class="color-bar" style="background:#a855f7"></div> Rho (ρ)</div>
+        
+        <div style="margin-top: 10px; color: #64748b;">Sensitivity Intensity:</div>
+        <div class="intensity-scale"></div>
+        <div style="display: flex; justify-content: space-between; color: #475569; font-size: 0.6rem;">
+            <span>Low</span>
+            <span>High Impact</span>
+        </div>
+        <div class="hint">Left Click: Orbit<br>Right Click: Pan<br>Scroll: Zoom</div>
+    </div>
+
+    <div id="tooltip"></div>
+    <div class="axis-label-overlay" id="label-container"></div>
+
+    <script>
+        // --- 1. CORE SETUP ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020617);
+        const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 4000);
+        camera.position.set(0, -140, 180);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // --- 2. DATA GENERATION (WITH UPTREND) ---
+        const dataPoints = [];
+        let runningPnL = 0;
+        const totalPoints = 40; 
+        
+        // Start date 04/2011
+        const startDate = new Date(2011, 3, 1); 
+
+        for (let i = 0; i < totalPoints; i++) {
+            // Trend logic: Random walk early on, strong upward bias in the final third
+            const bias = i > (totalPoints * 0.6) ? 80 : 0;
+            runningPnL += (Math.random() - 0.45) * 400 + bias; 
+            
+            const currentDate = new Date(startDate);
+            currentDate.setMonth(startDate.getMonth() + (i * 3)); // Quarterly steps
+
+            dataPoints.push({
+                day: i,
+                date: `${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${currentDate.getFullYear()}`,
+                pnl: runningPnL,
+                greeks: { 
+                    delta: Math.random(), 
+                    gamma: Math.random(), 
+                    theta: Math.random(), 
+                    vega: Math.random(), 
+                    rho: Math.random() 
+                }
+            });
+        }
+
+        // --- 3. GLYPH CREATION ---
+        function createGlyph(data) {
+            const geo = new THREE.BufferGeometry();
+            const r = 1.8, h = 3.2;
+            const pts = [[0,0,h/2], [-r,-r,-h/2], [r,-r,-h/2], [r,r,-h/2], [-r,r,-h/2]];
+            const faces = [ [0,1,2], [0,2,3], [0,3,4], [0,4,1], [1,4,2], [2,4,3] ];
+            const gKeys = ['delta', 'gamma', 'theta', 'vega', 'rho', 'rho'];
+            const baseColors = [0xef4444, 0x22c55e, 0xf59e0b, 0x3b82f6, 0xa855f7, 0xa855f7];
+
+            const vertices = [];
+            const colors = [];
+            faces.forEach((f, i) => {
+                const val = data.greeks[gKeys[i]];
+                const color = new THREE.Color(baseColors[i]);
+                const hsl = {}; color.getHSL(hsl);
+                color.setHSL(hsl.h, hsl.s, 0.2 + (val * 0.55)); 
+
+                f.forEach(idx => {
+                    vertices.push(...pts[idx]);
+                    colors.push(color.r, color.g, color.b);
+                });
+            });
+
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geo.computeVertexNormals();
+
+            const mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ 
+                vertexColors: true, 
+                flatShading: true, 
+                shininess: 60 
+            }));
+            
+            mesh.position.x = -80 + (data.day * 4.5);
+            mesh.position.y = (data.pnl / 40); 
+            mesh.rotation.x = Math.PI / 4;
+            mesh.userData = data;
+            return mesh;
+        }
+
+        const glyphs = [];
+        dataPoints.forEach(d => {
+            const m = createGlyph(d);
+            scene.add(m);
+            glyphs.push(m);
+        });
+
+        // --- 4. TRADITIONAL TREND LINE ---
+        const pathPoints = glyphs.map(g => g.position.clone());
+        const pathGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
+        const pathMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.5 });
+        const trendLine = new THREE.Line(pathGeo, pathMat);
+        scene.add(trendLine);
+
+        // --- 5. AXES & INFINITE GRID ---
+        const infiniteGrid = new THREE.GridHelper(5000, 200, 0x1e293b, 0x0f172a);
+        infiniteGrid.rotation.x = Math.PI / 2;
+        infiniteGrid.position.z = -10;
+        scene.add(infiniteGrid);
+
+        const whiteGrid = new THREE.GridHelper(5000, 40, 0x334155, 0x1e293b);
+        whiteGrid.rotation.x = Math.PI / 2;
+        whiteGrid.position.z = -10.1;
+        whiteGrid.material.transparent = true;
+        whiteGrid.material.opacity = 0.08;
+        scene.add(whiteGrid);
+
+        const axisMat = new THREE.LineBasicMaterial({ color: 0x64748b, linewidth: 2 });
+        
+        // X Axis
+        const xAxisPoints = [new THREE.Vector3(-150, -60, 0), new THREE.Vector3(150, -60, 0)];
+        scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(xAxisPoints), axisMat));
+
+        // Y Axis
+        const yAxisPoints = [new THREE.Vector3(-90, -100, 0), new THREE.Vector3(-90, 100, 0)];
+        scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(yAxisPoints), axisMat));
+
+        // Labels Logic
+        const labelContainer = document.getElementById('label-container');
+        const labelData = [];
+
+        // X Axis Date Ticks (Every 4th data point for quarters)
+        dataPoints.forEach((d, idx) => {
+            if (idx % 4 === 0) {
+                const xPos = -80 + (d.day * 4.5);
+                labelData.push({ text: d.date, pos: new THREE.Vector3(xPos, -65, 0), type: 'tick' });
+                // Tick line
+                const tPoints = [new THREE.Vector3(xPos, -60, 0), new THREE.Vector3(xPos, -62, 0)];
+                scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tPoints), axisMat));
+            }
+        });
+
+        // Y Axis PnL Ticks
+        for (let pnl = -2000; pnl <= 6000; pnl += 1000) {
+            const yPos = pnl / 40;
+            labelData.push({ text: `$${pnl}`, pos: new THREE.Vector3(-105, yPos, 0), type: 'tick' });
+            const tPoints = [new THREE.Vector3(-90, yPos, 0), new THREE.Vector3(-93, yPos, 0)];
+            scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tPoints), axisMat));
+        }
+
+        // Static Axis Titles
+        labelData.push({ text: "QUARTERLY TIME HORIZON", pos: new THREE.Vector3(0, -78, 0), type: 'title' });
+        labelData.push({ text: "CUMULATIVE PnL", pos: new THREE.Vector3(-120, 0, 0), type: 'title', rot: -90 });
+
+        const labelDivs = labelData.map(l => {
+            const div = document.createElement('div');
+            div.className = 'dom-label' + (l.type === 'title' ? ' axis-title' : '');
+            div.innerText = l.text;
+            if (l.rot) div.style.transform = `rotate(${l.rot}deg)`;
+            labelContainer.appendChild(div);
+            return { div, pos: l.pos };
+        });
+
+        function updateLabels() {
+            labelDivs.forEach(ld => {
+                const vector = ld.pos.clone().project(camera);
+                const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                const y = -(vector.y * 0.5 - 0.5) * window.innerHeight;
+                ld.div.style.left = x + 'px';
+                ld.div.style.top = y + 'px';
+                ld.div.style.display = vector.z > 1 ? 'none' : 'block';
+            });
+        }
+
+        // --- 6. INTERACTION & TOOLTIP ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById('tooltip');
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(glyphs);
+            if (hits.length > 0) {
+                const d = hits[0].object.userData;
+                tooltip.style.display = 'block';
+                tooltip.style.left = e.clientX + 15 + 'px';
+                tooltip.style.top = e.clientY + 15 + 'px';
+                tooltip.innerHTML = `
+                    <div style="color:#38bdf8; font-weight:bold; border-bottom:1px solid #1e293b; margin-bottom:5px; padding-bottom:2px;">${d.date}</div>
+                    PnL: <span style="color:${d.pnl>=0?'#4ade80':'#f87171'}">$${d.pnl.toFixed(0)}</span><br>
+                    <div style="margin-top:4px; font-size:0.7rem; color:#94a3b8;">
+                    Δ: ${d.greeks.delta.toFixed(2)} | Γ: ${d.greeks.gamma.toFixed(2)}<br>
+                    Θ: ${d.greeks.theta.toFixed(2)} | ν: ${d.greeks.vega.toFixed(2)}
+                    </div>
+                `;
+            } else {
+                tooltip.style.display = 'none';
+            }
+        });
+
+        // --- 7. ANIMATION LOOP ---
+        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+        const pointLight = new THREE.PointLight(0xffffff, 0.9);
+        pointLight.position.set(50, 50, 150);
+        scene.add(pointLight);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            glyphs.forEach(g => g.rotation.z += 0.005);
+            controls.update();
+            updateLabels();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        animate();
+    </script>
+</body>
+</html>

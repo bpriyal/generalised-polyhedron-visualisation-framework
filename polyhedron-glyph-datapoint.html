@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Polyhedral Glyph Framework Visualizer</title>
+   <style>
+       body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white; }
+      
+       /* Layout Containers */
+       #canvas-container { width: 100vw; height: 100vh; display: block; }
+      
+       /* Legend / Information Panel */
+       #ui-layer {
+           position: absolute;
+           top: 20px;
+           right: 20px;
+           width: 320px;
+           background: rgba(15, 23, 42, 0.9);
+           border: 1px solid #334155;
+           backdrop-filter: blur(10px);
+           padding: 20px;
+           border-radius: 12px;
+           box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+           pointer-events: none; /* Let clicks pass through, enable specifically for buttons if needed */
+       }
+
+
+       h1 { font-size: 1.2rem; margin: 0 0 10px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; }
+       h2 { font-size: 0.9rem; margin: 15px 0 5px 0; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 5px; }
+      
+       .legend-item { display: flex; align-items: start; margin-bottom: 12px; font-size: 0.85rem; line-height: 1.4; }
+       .icon { width: 24px; height: 24px; margin-right: 12px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.2); }
+      
+       /* Legend Visuals */
+       .icon.intensity { background: linear-gradient(135deg, #0f172a, #ef4444); }
+       .icon.texture {
+           background-color: #3b82f6;
+           background-image: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.3) 2px, rgba(255,255,255,0.3) 4px);
+       }
+       .icon.size {
+           background: transparent;
+           position: relative;
+       }
+       .icon.size::after {
+           content: ''; position: absolute; top: 2px; left: 2px; width: 8px; height: 8px; background: #fff; opacity: 0.5;
+       }
+       .icon.size::before {
+           content: ''; position: absolute; bottom: 0; right: 0; width: 16px; height: 16px; background: #fff; border: 1px solid #999;
+       }
+
+
+       .icon.angle {
+           background: transparent;
+           border: none;
+       }
+       /* Draw a simple angle using css borders */
+       .angle-shape {
+           width: 0; height: 0;
+           border-left: 10px solid transparent;
+           border-right: 10px solid transparent;
+           border-bottom: 20px solid #fbbf24;
+       }
+
+
+       .description { color: #cbd5e1; }
+       strong { color: white; font-weight: 600; }
+
+
+       /* Floating Labels */
+       .annotation {
+           position: absolute;
+           background: rgba(0, 0, 0, 0.7);
+           color: #fff;
+           padding: 5px 10px;
+           border-radius: 4px;
+           font-size: 12px;
+           pointer-events: none;
+           opacity: 0;
+           transition: opacity 0.3s;
+           transform: translate(-50%, -50%);
+           border: 1px solid #38bdf8;
+           white-space: nowrap;
+       }
+
+
+       #controls {
+           position: absolute;
+           bottom: 20px;
+           left: 20px;
+           color: #64748b;
+           font-size: 0.8rem;
+       }
+
+
+       /* Loading */
+       #loading {
+           position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+           color: #38bdf8; font-family: monospace;
+       }
+
+
+   </style>
+   <!-- Three.js CDN -->
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+
+   <div id="loading">Initialize Framework Visualization...</div>
+   <div id="canvas-container"></div>
+
+
+   <!-- Interface Layer -->
+   <div id="ui-layer">
+       <h1>Polyhedral Glyph Framework</h1>
+       <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 15px;">
+           A single "Meta-Chart" demonstrating how high-dimensional data is encoded onto geometric facets.
+       </p>
+
+
+       <h2>Visual Legend</h2>
+      
+       <div class="legend-item">
+           <div class="icon intensity"></div>
+           <div class="description">
+               <strong>Color Gradient</strong><br>
+               Encodes data <em>Intensity</em> or <em>Magnitude</em>.
+               <br><span style="color:#64748b; font-size:0.75rem;">(e.g., Temperature, Sales Vol)</span>
+           </div>
+       </div>
+
+
+       <div class="legend-item">
+           <div class="icon texture"></div>
+           <div class="description">
+               <strong>Texture / Pattern</strong><br>
+               Encodes <em>Categorical Data</em> or <em>Type</em>.
+               <br><span style="color:#64748b; font-size:0.75rem;">(e.g., Region, Product Class)</span>
+           </div>
+       </div>
+
+
+       <div class="legend-item">
+           <div class="icon size"></div>
+           <div class="description">
+               <strong>Face Area (Size)</strong><br>
+               Encodes Variable <em>Importance</em> or <em>Weight</em>.
+               <br><span style="color:#64748b; font-size:0.75rem;">(Bigger face = Key KPI)</span>
+           </div>
+       </div>
+
+
+       <div class="legend-item">
+           <div class="angle-shape icon angle"></div>
+           <div class="description">
+               <strong>Geometric Angles</strong><br>
+               Acute vs. Obtuse angles represent <em>Data Volatility</em> or <em>Risk</em>.
+           </div>
+       </div>
+
+
+   </div>
+
+
+   <div id="controls">
+       Click & Drag to Rotate • Scroll to Zoom
+   </div>
+
+
+   <!-- Label Container -->
+   <div id="label-container"></div>
+
+
+   <script>
+       // --- 1. SCENE SETUP ---
+       const container = document.getElementById('canvas-container');
+       const scene = new THREE.Scene();
+       scene.background = new THREE.Color(0x0f172a); // Slate 900
+       scene.fog = new THREE.FogExp2(0x0f172a, 0.035);
+
+
+       const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+       camera.position.set(4, 3, 5);
+
+
+       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+       renderer.setSize(window.innerWidth, window.innerHeight);
+       renderer.setPixelRatio(window.devicePixelRatio);
+       renderer.shadowMap.enabled = true;
+       container.appendChild(renderer.domElement);
+
+
+       const controls = new THREE.OrbitControls(camera, renderer.domElement);
+       controls.enableDamping = true;
+       controls.dampingFactor = 0.05;
+       controls.autoRotate = true;
+       controls.autoRotateSpeed = 1.0;
+
+
+       // --- 2. LIGHTING ---
+       const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+       scene.add(ambientLight);
+
+
+       const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+       dirLight.position.set(5, 10, 7);
+       dirLight.castShadow = true;
+       scene.add(dirLight);
+
+
+       const blueLight = new THREE.PointLight(0x38bdf8, 0.8, 20);
+       blueLight.position.set(-5, 0, -5);
+       scene.add(blueLight);
+
+
+       // --- 3. HELPER FUNCTIONS FOR TEXTURES ---
+      
+       // Generate a striped texture for "Categorical" data
+       function createStripedTexture(color1, color2) {
+           const size = 512;
+           const canvas = document.createElement('canvas');
+           canvas.width = size;
+           canvas.height = size;
+           const ctx = canvas.getContext('2d');
+
+
+           ctx.fillStyle = color1;
+           ctx.fillRect(0, 0, size, size);
+
+
+           ctx.fillStyle = color2;
+           const stripes = 10;
+           const step = size / stripes;
+          
+           ctx.beginPath();
+           for(let i = 0; i < stripes * 2; i++) {
+               ctx.moveTo(i * step, 0);
+               ctx.lineTo(i * step - size, size);
+               ctx.lineTo(i * step - size + (step/2), size);
+               ctx.lineTo(i * step + (step/2), 0);
+           }
+           ctx.fill();
+
+
+           const tex = new THREE.CanvasTexture(canvas);
+           tex.wrapS = THREE.RepeatWrapping;
+           tex.wrapT = THREE.RepeatWrapping;
+           return tex;
+       }
+
+
+       // Generate a noise/grain texture for "High Density" data
+       function createNoiseTexture() {
+           const size = 512;
+           const canvas = document.createElement('canvas');
+           canvas.width = size;
+           canvas.height = size;
+           const ctx = canvas.getContext('2d');
+          
+           ctx.fillStyle = '#1e293b';
+           ctx.fillRect(0,0,size,size);
+          
+           for(let i=0; i<5000; i++) {
+               ctx.fillStyle = Math.random() > 0.5 ? '#64748b' : '#94a3b8';
+               const x = Math.random() * size;
+               const y = Math.random() * size;
+               const r = Math.random() * 3;
+               ctx.beginPath();
+               ctx.arc(x,y,r,0,Math.PI*2);
+               ctx.fill();
+           }
+           return new THREE.CanvasTexture(canvas);
+       }
+
+
+       // --- 4. THE GLYPH GEOMETRY ---
+       // We use a Dodecahedron but stretch it to create irregular faces/angles
+       const geometry = new THREE.DodecahedronGeometry(1.5, 0); // Radius 1.5, detail 0
+      
+       // Distort geometry to demonstrate "Shape/Size" encoding
+       // We will scale vertices based on their position to make the top faces larger
+       const posAttribute = geometry.attributes.position;
+       const vertex = new THREE.Vector3();
+
+
+       for (let i = 0; i < posAttribute.count; i++) {
+           vertex.fromBufferAttribute(posAttribute, i);
+          
+           // Apply non-uniform scaling/distortion
+           // Stretch the top (Y > 0) to make top faces larger
+           if (vertex.y > 0.2) {
+               vertex.x *= 1.4;
+               vertex.z *= 1.4;
+               vertex.y *= 1.2;
+           }
+           // Pinch the bottom to create acute angles
+           else if (vertex.y < -0.5) {
+               vertex.x *= 0.6;
+               vertex.z *= 0.6;
+           }
+
+
+           posAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+       }
+      
+       geometry.computeVertexNormals(); // Recalculate lighting after distortion
+
+
+       // --- 5. MATERIALS (THE ENCODING) ---
+       // A Dodecahedron has 12 faces. In Three.js geometry (non-indexed), it's built of triangles.
+       // However, DodecahedronGeometry uses indexed groups.
+       // We will loop through the faces (groups of triangles) and assign materials.
+      
+       // We need 3 groups of materials to demonstrate different features.
+       const matHighIntensity = new THREE.MeshStandardMaterial({
+           color: 0xef4444, // Red
+           roughness: 0.2,
+           metalness: 0.5,
+           name: "High Intensity"
+       });
+
+
+       const matLowIntensity = new THREE.MeshStandardMaterial({
+           color: 0x3b82f6, // Blue
+           roughness: 0.4,
+           metalness: 0.1,
+           name: "Low Intensity"
+       });
+
+
+       const matTexture = new THREE.MeshStandardMaterial({
+           map: createStripedTexture('#0f766e', '#2dd4bf'), // Teal stripes
+           roughness: 0.8,
+           name: "Categorical Data"
+       });
+
+
+       const matNoise = new THREE.MeshStandardMaterial({
+           map: createNoiseTexture(),
+           roughness: 1.0,
+           name: "High Variance"
+       });
+
+
+       const matGold = new THREE.MeshStandardMaterial({
+           color: 0xf59e0b, // Gold
+           roughness: 0.1,
+           metalness: 0.9,
+           emissive: 0x451a03,
+           name: "Critical Point"
+       });
+
+
+       // The DodecahedronGeometry (if detail=0) typically has 12 faces, but geometry.groups might differ.
+       // To keep it simple for this visualization, we will construct the mesh using material indices.
+       // Standard Dodecahedron has 12 pentagonal faces. Three.js renders them as 36 triangles (3 per pentagon).
+       // We will modify the geometry to allow multi-material.
+      
+       geometry.clearGroups();
+       const faceCount = 12; // Dodecahedron
+       const trianglesPerFace = 3;
+       const verticesPerTriangle = 3;
+      
+       // We have 12 faces. Let's map them to our concepts.
+       // Top Large Face (Index 0): High Intensity (Important)
+       // Bottom Small Face (Index 11): Gold (Critical/Acute)
+       // Side Faces: Mixture of Textures and Colors
+      
+       for (let i = 0; i < faceCount; i++) {
+           let matIndex = 0;
+          
+           // Logic to assign materials based on "position" concept
+           if (i === 0) matIndex = 0; // Large Top -> High Intensity
+           else if (i === 11) matIndex = 1; // Bottom -> Gold/Acute
+           else if (i % 2 === 0) matIndex = 2; // Even sides -> Texture
+           else if (i % 3 === 0) matIndex = 3; // Mod 3 -> Noise
+           else matIndex = 4; // Remainder -> Low Intensity
+          
+           // Add group: start, count, materialIndex
+           // Each face is 3 triangles * 3 vertices = 9 vertices
+           // Note: Standard DodecahedronGeometry structure logic varies by version,
+           // but usually faces are contiguous in the index buffer.
+          
+           // IMPORTANT: DodecahedronGeometry is indexed.
+           // We assume standard topology here.
+            geometry.addGroup(i * 3 * 3, 3 * 3, matIndex);
+       }
+
+
+       const materials = [
+           matHighIntensity, // 0
+           matGold,          // 1
+           matTexture,       // 2
+           matNoise,         // 3
+           matLowIntensity   // 4
+       ];
+
+
+       const glyph = new THREE.Mesh(geometry, materials);
+       scene.add(glyph);
+
+
+       // --- 6. WIREFRAME & DECORATION ---
+       // Add a wireframe to emphasize the geometry/angles
+       const edges = new THREE.EdgesGeometry(geometry);
+       const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.15, transparent: true }));
+       glyph.add(line);
+
+
+       // Add Floating Labels (HTML)
+       // We create invisible 3D anchors to attach HTML labels to
+       function createAnchor(x, y, z, text, desc) {
+           const div = document.createElement('div');
+           div.className = 'annotation';
+           div.innerHTML = `<strong>${text}</strong><br>${desc}`;
+           document.getElementById('label-container').appendChild(div);
+           return {
+               div: div,
+               pos: new THREE.Vector3(x, y, z)
+           };
+       }
+
+
+       // Positions approximated based on the distortion logic
+       const annotations = [
+           createAnchor(0, 1.8, 0, "Large Face", "High Importance Variable"),
+           createAnchor(0, -1.2, 0, "Acute Angles", "High Volatility / Risk"),
+           createAnchor(1.5, 0.2, 0, "Texture", "Categorical Data"),
+           createAnchor(-1.2, 0.2, 0.5, "Color Saturation", "Metric Intensity"),
+       ];
+
+
+       // --- 7. ANIMATION LOOP ---
+       const clock = new THREE.Clock();
+      
+       // Raycaster for interactivity
+       const raycaster = new THREE.Raycaster();
+       const mouse = new THREE.Vector2();
+      
+       function onMouseMove( event ) {
+           mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+           mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+       }
+       window.addEventListener( 'mousemove', onMouseMove, false );
+
+
+       function animate() {
+           requestAnimationFrame(animate);
+          
+           const time = clock.getElapsedTime();
+          
+           // Gentle floating
+           glyph.position.y = Math.sin(time * 0.5) * 0.1;
+
+
+           controls.update();
+
+
+           // Update Labels positions
+           // Project 3D position to 2D screen space
+           annotations.forEach(ann => {
+               // Get world position of the specific anchor point relative to the rotating glyph
+               // We clone the local position vector and apply the glyph's matrix
+               const worldPos = ann.pos.clone().applyMatrix4(glyph.matrixWorld);
+              
+               // Project to screen
+               worldPos.project(camera);
+              
+               // Convert to CSS coordinates
+               const x = (worldPos.x * .5 + .5) * container.clientWidth;
+               const y = (worldPos.y * -.5 + .5) * container.clientHeight;
+
+
+               // Check if visible (z < 1) and update CSS
+               if(Math.abs(worldPos.z) < 1) {
+                   ann.div.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
+                  
+                   // Simple logic to hide labels if they are behind the object (dot product approximation or Z check)
+                   // Here we just use a Z-dist check or fade based on rotation for simplicity
+                   // A proper occlusion check would raycast back to camera
+               }
+           });
+
+
+           // Raycasting for "Hover" effect
+           raycaster.setFromCamera( mouse, camera );
+           const intersects = raycaster.intersectObject( glyph );
+
+
+           // Reset opacities
+           annotations.forEach(a => a.div.style.opacity = 0.6); // Default Dim
+          
+           if ( intersects.length > 0 ) {
+               // Determine which face we hit?
+               // For now, just brighten the glyph or stop rotation
+               controls.autoRotate = false;
+               document.body.style.cursor = 'pointer';
+           } else {
+               controls.autoRotate = true;
+               document.body.style.cursor = 'default';
+           }
+          
+           // Dynamic Label Opacity based on rotation
+           // We want labels facing the camera to be brighter
+           annotations.forEach(ann => {
+                const worldPos = ann.pos.clone().applyMatrix4(glyph.matrixWorld);
+                // Calculate angle to camera
+                const cameraDir = new THREE.Vector3();
+                camera.getWorldDirection(cameraDir);
+               
+                // Vector from center to point
+                const pointDir = worldPos.clone().normalize();
+               
+                // Dot product tells us if it's facing camera
+                // Camera looks down -Z, so we check alignment
+                const dot = pointDir.dot(camera.position.clone().normalize());
+               
+                if(dot > 0.2) {
+                    ann.div.style.opacity = 1;
+                    ann.div.style.zIndex = 10;
+                } else {
+                    ann.div.style.opacity = 0.1;
+                    ann.div.style.zIndex = 0;
+                }
+           });
+
+
+           renderer.render(scene, camera);
+       }
+
+
+       // --- 8. RESIZE HANDLER ---
+       window.addEventListener('resize', () => {
+           camera.aspect = window.innerWidth / window.innerHeight;
+           camera.updateProjectionMatrix();
+           renderer.setSize(window.innerWidth, window.innerHeight);
+       });
+
+
+       document.getElementById('loading').style.display = 'none';
+       animate();
+
+
+   </script>
+</body>
+</html>

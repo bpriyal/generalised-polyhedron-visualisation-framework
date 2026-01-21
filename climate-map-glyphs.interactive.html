@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Climate Polyhedron Glyph</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #020617; font-family: 'Inter', sans-serif; color: white; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        h1 { margin: 0; font-size: 1.5rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 2px; }
+        .subtitle { font-size: 0.8rem; color: #94a3b8; margin-bottom: 20px; }
+        .instruction { font-size: 0.75rem; color: #fbbf24; margin-top: 5px; font-weight: bold; background: rgba(251, 191, 36, 0.1); padding: 5px; display: inline-block; border-radius: 4px; border: 1px solid #fbbf24; }
+
+        #legend-container {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid #334155;
+            padding: 15px;
+            border-radius: 8px;
+            width: 260px;
+            pointer-events: auto;
+        }
+
+        .legend-title { font-weight: bold; font-size: 0.9rem; margin-bottom: 10px; border-bottom: 1px solid #334155; padding-bottom: 5px; }
+        
+        #tooltip {
+            position: absolute;
+            background: rgba(2, 6, 23, 0.95);
+            border: 1px solid #38bdf8;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            display: none;
+            pointer-events: none;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            min-width: 150px;
+        }
+
+        .tooltip-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .tooltip-val { font-weight: bold; color: #e2e8f0; }
+        .face-id { display: inline-block; width: 16px; height: 16px; text-align: center; line-height: 16px; background: #334155; border-radius: 50%; font-size: 0.6rem; margin-right: 5px; }
+
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h1>Global Climate Glyphs</h1>
+        <div class="subtitle">Real-time Representation of Country Climate Data</div>
+        <div class="instruction">CLICK & DRAG a glyph to rotate it individually</div>
+    </div>
+
+    <!-- Exploded Legend (SVG) -->
+    <div id="legend-container">
+        <div class="legend-title">Face Encoding Map</div>
+        <svg width="240" height="200" viewBox="-3 -4 6 7">
+            <!-- Polygons matching the Python script's exploded view -->
+            <polygon points="0,0 1,1 -1,1" fill="#3b82f6" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="0" y="0.7" font-size="0.4" fill="white" text-anchor="middle">1</text>
+
+            <polygon points="1,1 2,0 1,-1" fill="#bae6fd" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="1.3" y="0" font-size="0.4" fill="#0f172a" text-anchor="middle">2</text>
+
+            <polygon points="1,-1 0,-2 -1,-1" fill="#22c55e" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="0" y="-1.3" font-size="0.4" fill="white" text-anchor="middle">3</text>
+
+            <polygon points="-1,-1 -2,0 -1,1" fill="#a855f7" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="-1.3" y="0" font-size="0.4" fill="white" text-anchor="middle">4</text>
+
+            <!-- Inner Faces (Offset) -->
+            <polygon points="0,0.5 0.5,1.5 -0.5,1.5" fill="#64748b" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="0" y="1.2" font-size="0.4" fill="white" text-anchor="middle">5</text>
+
+            <polygon points="1.5,0.5 2.5,0 1.5,-0.5" fill="#1e293b" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="1.8" y="0" font-size="0.4" fill="white" text-anchor="middle">6</text>
+
+            <polygon points="0,-1.5 0.5,-2.5 -0.5,-2.5" fill="#eab308" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="0" y="-2.2" font-size="0.4" fill="white" text-anchor="middle">7</text>
+
+            <polygon points="-1.5,0.5 -2.5,0 -1.5,-0.5" fill="#ef4444" stroke="white" stroke-width="0.05" opacity="0.9"></polygon>
+            <text x="-1.8" y="0" font-size="0.4" fill="white" text-anchor="middle">8</text>
+        </svg>
+        <div style="font-size: 0.7rem; color: #cbd5e1; margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+            <div>1. Temp Dev</div>
+            <div>2. Humidity</div>
+            <div>3. Precip</div>
+            <div>4. Wind Spd</div>
+            <div>5. Clouds</div>
+            <div>6. Pressure</div>
+            <div>7. Zone</div>
+            <div>8. UV Index</div>
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+
+    <script>
+        // --- 1. SETUP ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020617);
+        
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
+        camera.position.set(0, -250, 180);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2.2; // Stop before going under map
+
+        // --- 2. WORLD MAP TEXTURE ---
+        const loader = new THREE.TextureLoader();
+        // Using a high-contrast dark map texture
+        loader.load('https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/World_map_blank_without_borders.svg/2000px-World_map_blank_without_borders.svg.png', 
+            function(texture) {
+                // Invert colors to make it dark themed using material props or just use it as is with dark opacity
+                const planeGeo = new THREE.PlaneGeometry(360, 180);
+                const planeMat = new THREE.MeshBasicMaterial({ 
+                    map: texture, 
+                    transparent: true, 
+                    opacity: 0.4,
+                    color: 0x8899aa // Tint
+                });
+                const plane = new THREE.Mesh(planeGeo, planeMat);
+                scene.add(plane);
+            },
+            undefined,
+            function(err) {
+                // Fallback if texture fails
+                const gridHelper = new THREE.GridHelper(360, 36, 0x334155, 0x1e293b);
+                gridHelper.rotation.x = Math.PI / 2;
+                scene.add(gridHelper);
+            }
+        );
+
+        // --- 3. LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 50, 100);
+        scene.add(dirLight);
+
+        // --- 4. DATA: COUNTRIES & COORDINATES ---
+        // Real coordinates to map polyhedra to countries
+        const countries = [
+            {name: "USA", lat: 37.09, lon: -95.71, zone: "Temperate"},
+            {name: "Brazil", lat: -14.23, lon: -51.92, zone: "Tropical"},
+            {name: "UK", lat: 55.37, lon: -3.43, zone: "Temperate"},
+            {name: "France", lat: 46.22, lon: 2.21, zone: "Temperate"},
+            {name: "South Africa", lat: -30.55, lon: 22.93, zone: "Arid"},
+            {name: "India", lat: 20.59, lon: 78.96, zone: "Tropical"},
+            {name: "China", lat: 35.86, lon: 104.19, zone: "Temperate"},
+            {name: "Australia", lat: -25.27, lon: 133.77, zone: "Arid"},
+            {name: "Japan", lat: 36.20, lon: 138.25, zone: "Temperate"},
+            {name: "Russia", lat: 61.52, lon: 105.31, zone: "Polar"},
+            {name: "Egypt", lat: 26.82, lon: 30.80, zone: "Arid"},
+            {name: "Canada", lat: 56.13, lon: -106.34, zone: "Polar"},
+            {name: "Mexico", lat: 23.63, lon: -102.55, zone: "Arid"},
+            {name: "Germany", lat: 51.16, lon: 10.45, zone: "Temperate"},
+            {name: "Nigeria", lat: 9.08, lon: 8.67, zone: "Tropical"},
+            {name: "Argentina", lat: -38.41, lon: -63.61, zone: "Temperate"},
+            {name: "Indonesia", lat: -0.78, lon: 113.92, zone: "Tropical"},
+            {name: "Saudi Arabia", lat: 23.88, lon: 45.07, zone: "Arid"},
+            {name: "Turkey", lat: 38.96, lon: 35.24, zone: "Temperate"},
+            {name: "Greenland", lat: 71.70, lon: -42.60, zone: "Polar"}
+        ];
+
+        // --- 5. GEOMETRY (OCTAHEDRON) ---
+        const baseVerts = [
+            new THREE.Vector3(1,0,0), new THREE.Vector3(-1,0,0), 
+            new THREE.Vector3(0,1,0), new THREE.Vector3(0,-1,0), 
+            new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,-1)
+        ];
+        
+        const faceIndices = [
+            [0,2,4], [2,1,4], [1,3,4], [3,0,4], 
+            [0,3,5], [3,1,5], [1,2,5], [2,0,5]
+        ];
+
+        // --- 6. COLOR MAPPERS ---
+        function mapTemp(val) {
+            if (val < -2) return new THREE.Color(0x3232ff);
+            if (val < 2) return new THREE.Color(0xf0f0f0);
+            return new THREE.Color(0xff3232);
+        }
+        function mapHumidity(val) {
+            const intensity = Math.floor(val * 2.55); 
+            return new THREE.Color(`rgb(${255-intensity}, ${255-intensity}, 255)`);
+        }
+        function mapPrecip(val) {
+            if (val < 5) return new THREE.Color(0x32c832);
+            if (val < 20) return new THREE.Color(0xffff32);
+            return new THREE.Color(0xc83232);
+        }
+        function mapZone(val) {
+            if (val === 'Arid') return new THREE.Color(0xffc864);
+            if (val === 'Tropical') return new THREE.Color(0x10b981); // Lush green
+            if (val === 'Temperate') return new THREE.Color(0x64c864);
+            return new THREE.Color(0x96c8ff); // Polar
+        }
+
+        // --- 7. CREATE GLYPHS ---
+        const glyphs = [];
+
+        countries.forEach((country, idx) => {
+            // Simulated attributes (In a real app, fetch these per country)
+            const attrs = {
+                name: country.name,
+                temp: (Math.random() * 20) - 10, // Wider range
+                humidity: Math.random() * 100,
+                precip: Math.random() * 30,
+                wind: Math.random() * 50,
+                cloud: Math.random(),
+                pressure: 980 + Math.random() * 60,
+                zone: country.zone,
+                uv: Math.random() * 12
+            };
+            
+            // Initial random rotation
+            const windDir = Math.random() * Math.PI * 2;
+
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            const colors = [];
+
+            faceIndices.forEach((face, faceIdx) => {
+                let col = new THREE.Color();
+                if (faceIdx === 0) col = mapTemp(attrs.temp);
+                else if (faceIdx === 1) col = mapHumidity(attrs.humidity);
+                else if (faceIdx === 2) col = mapPrecip(attrs.precip);
+                else if (faceIdx === 3) { 
+                    const sat = Math.floor(attrs.wind * 5);
+                    col.set(`rgb(${sat}, 0, ${sat})`);
+                }
+                else if (faceIdx === 4) {
+                    const l = attrs.cloud * 0.8 + 0.2;
+                    col.setHSL(0, 0, l);
+                }
+                else if (faceIdx === 5) {
+                    const norm = (attrs.pressure - 900) / 150;
+                    col.setHSL(0, 0, norm);
+                }
+                else if (faceIdx === 6) col = mapZone(attrs.zone);
+                else if (faceIdx === 7) {
+                    const r = Math.floor(attrs.uv * 20);
+                    col.set(`rgb(${r}, 0, 0)`);
+                }
+
+                face.forEach(vIdx => {
+                    const v = baseVerts[vIdx];
+                    vertices.push(v.x * 3.5, v.y * 3.5, v.z * 3.5); // Larger glyphs
+                    colors.push(col.r, col.g, col.b);
+                });
+            });
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geometry.computeVertexNormals();
+
+            const material = new THREE.MeshPhongMaterial({ 
+                vertexColors: true, 
+                flatShading: true,
+                shininess: 30
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            // Map Lat/Lon to X/Y (Mercator-ish for Plane)
+            // Plane is 360 width, 180 height
+            mesh.position.set(country.lon, country.lat, 5); // Floating above map
+            mesh.rotation.z = windDir;
+            
+            mesh.userData = { id: idx, ...attrs };
+            
+            scene.add(mesh);
+            glyphs.push(mesh);
+            
+            // Stem
+            const points = [new THREE.Vector3(country.lon, country.lat, 0), new THREE.Vector3(country.lon, country.lat, 5)];
+            const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x94a3b8, opacity: 0.5, transparent: true }));
+            scene.add(line);
+        });
+
+        // --- 8. INTERACTION LOGIC (HOVER + DRAG) ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById('tooltip');
+        
+        // Interaction State
+        let isDragging = false;
+        let selectedGlyph = null;
+        let previousMousePosition = { x: 0, y: 0 };
+
+        // Mouse Down: Check if hitting a glyph to start drag
+        window.addEventListener('mousedown', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(glyphs);
+            
+            if (intersects.length > 0) {
+                isDragging = true;
+                selectedGlyph = intersects[0].object;
+                controls.enabled = false; // Disable camera orbit
+                previousMousePosition = { x: event.clientX, y: event.clientY };
+                
+                // Highlight visual
+                document.body.style.cursor = "move";
+            }
+        });
+
+        // Mouse Up: Reset
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            selectedGlyph = null;
+            controls.enabled = true; // Re-enable camera orbit
+            document.body.style.cursor = "default";
+        });
+
+        // Mouse Move: Handle Tooltip AND Rotation
+        window.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            if (isDragging && selectedGlyph) {
+                // ROTATE GLYPH
+                const deltaX = event.clientX - previousMousePosition.x;
+                const deltaY = event.clientY - previousMousePosition.y;
+                
+                selectedGlyph.rotation.z += deltaX * 0.01;
+                selectedGlyph.rotation.x += deltaY * 0.01;
+                
+                previousMousePosition = { x: event.clientX, y: event.clientY };
+                tooltip.style.display = 'none'; // Hide tooltip while dragging
+                return;
+            }
+
+            // TOOLTIP LOGIC (Only if not dragging)
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(glyphs);
+
+            if (intersects.length > 0) {
+                const data = intersects[0].object.userData;
+                tooltip.style.display = 'block';
+                tooltip.style.left = event.clientX + 15 + 'px';
+                tooltip.style.top = event.clientY + 15 + 'px';
+                
+                tooltip.innerHTML = `
+                    <div style="color:#38bdf8; font-weight:bold; margin-bottom:5px;">${data.name}</div>
+                    <div class="tooltip-row"><span class="face-id">1</span> Temp Dev: <span class="tooltip-val">${data.temp.toFixed(1)}°C</span></div>
+                    <div class="tooltip-row"><span class="face-id">2</span> Humidity: <span class="tooltip-val">${data.humidity.toFixed(0)}%</span></div>
+                    <div class="tooltip-row"><span class="face-id">3</span> Precip: <span class="tooltip-val">${data.precip.toFixed(1)}mm</span></div>
+                    <div class="tooltip-row"><span class="face-id">4</span> Wind Spd: <span class="tooltip-val">${data.wind.toFixed(1)}kph</span></div>
+                    <div class="tooltip-row"><span class="face-id">7</span> Zone: <span class="tooltip-val" style="color:#eab308">${data.zone}</span></div>
+                    <div style="margin-top:6px; font-size:0.65rem; color:#94a3b8; border-top:1px solid #334155; padding-top:2px;">
+                        Click & Drag to Rotate
+                    </div>
+                `;
+                document.body.style.cursor = "pointer";
+            } else {
+                tooltip.style.display = 'none';
+                document.body.style.cursor = "default";
+            }
+        });
+
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+
+    </script>
+</body>
+</html>
